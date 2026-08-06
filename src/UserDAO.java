@@ -25,6 +25,17 @@ public class UserDAO {
         }
     }
 
+//    public static int getUserIdByUsername(String username) throws SQLException {
+//        String sql = "SELECT user_id FROM users WHERE username = ?";
+//        try (Connection conn = DatabaseConnection.getConnection();
+//             PreparedStatement stmt = conn.prepareStatement(sql)) {
+//            stmt.setString(1, username);
+//            ResultSet rs = stmt.executeQuery();
+//            if (rs.next()) return rs.getInt("user_id");
+//            return -1;
+//        }
+//    }
+
     public static User findByUsername(String username) throws SQLException {
         String sql = "SELECT user_id, username, hashed_password, first_name, last_name, role FROM users WHERE username = ?";
         try (Connection conn = DatabaseConnection.getConnection();
@@ -42,17 +53,6 @@ public class UserDAO {
                 );
             }
             return null;
-        }
-    }
-
-    public static int getUserIdByUsername(String username) throws SQLException {
-        String sql = "SELECT user_id FROM users WHERE username = ?";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, username);
-            ResultSet rs = stmt.executeQuery();
-            if (rs.next()) return rs.getInt("user_id");
-            return -1;
         }
     }
 }

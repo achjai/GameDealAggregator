@@ -29,26 +29,47 @@ public class AdminService {
 
     // ==================== CATEGORY DISCOUNT ====================
     public static boolean applyCategoryDiscount(String category, double discountPercent) {
+
+
         if (discountPercent < 0 || discountPercent > 1.0) {
             System.out.println("Discount must be between 0 and 1.0 (e.g., 0.20 for 20%)");
             return false;
         }
+
         try {
             List<Game> games = GameDAO.getGamesByCategory(category);
             if (games.isEmpty()) {
                 System.out.println("No games found in category '" + category + "'.");
                 return false;
             }
+
+            int updatedCount = 0;
             for (Game g : games) {
+                // Additional safety: skip any game with price 0.00
+                if (g.getSalePrice().compareTo(BigDecimal.ZERO) == 0) {
+                    continue;
+                }
+
                 BigDecimal oldPrice = g.getSalePrice();
                 BigDecimal newPrice = oldPrice.multiply(BigDecimal.ONE.subtract(new BigDecimal(discountPercent)));
-                GameDAO.updatePrice(g.getGameId(), newPrice); // returns boolean but we ignore
-                undoStack.push(new PriceChange(g.getGameId(), g.getGameName(), oldPrice, newPrice));
-                String msg = "Price drop! " + g.getGameName() + " is now $" + String.format("%.2f", newPrice);
-                notifyUsersForGame(g.getGameId(), msg);
+                boolean updated = GameDAO.updatePrice(g.getGameId(), newPrice);
+
+                if (updated) {
+                    undoStack.push(new PriceChange(g.getGameId(), g.getGameName(), oldPrice, newPrice));
+                    String msg = "Price drop! " + g.getGameName() + " is now $" + String.format("%.2f", newPrice);
+                    notifyUsersForGame(g.getGameId(), msg);
+                    updatedCount++;
+                }
             }
-            System.out.println("Applied discount to " + games.size() + " games.");
+
+            if (updatedCount == 0) {
+                System.out.println("No games were updated in category '" + category + "'. (Maybe all were free?)");
+                return false;
+            }
+
+            System.out.println("Applied discount to " + updatedCount + " games in category '" + category + "'.");
             return true;
+
         } catch (SQLException e) {
             System.err.println("Error applying category discount: " + e.getMessage());
             return false;
@@ -105,14 +126,16 @@ public class AdminService {
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement()) {
 
-            boolean isSelect = sql.toUpperCase().startsWith("SELECT");
+            // .execute() returns true if the first result is a ResultSet (SELECT),
+            // false if it's an update count (INSERT, UPDATE, DELETE, DDL, etc.)
+            boolean isResultSet = stmt.execute(sql);
 
-            if (isSelect) {
-                try (ResultSet rs = stmt.executeQuery(sql)) {
+            if (isResultSet) {
+                try (ResultSet rs = stmt.getResultSet()) {
                     printResultSet(rs);
                 }
             } else {
-                int affected = stmt.executeUpdate(sql);
+                int affected = stmt.getUpdateCount();
                 System.out.println("Query executed. Affected rows: " + affected);
             }
             return true;

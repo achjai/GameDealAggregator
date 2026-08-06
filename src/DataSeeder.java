@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,69 +24,79 @@ public class DataSeeder {
     };
     private static final int[] STORE_IDS = {1, 2, 3, 25};
     private static final int MAX_PER_STORE = 25;
+    private static final int TOTAL_CAP = 100;
 
     // ============================================================
-    // MAIN ENTRY POINT
+    // FIXED: seedIfEmpty() - checks games BEFORE inserting free games
     // ============================================================
     public static void seedIfEmpty() {
         createAdminIfMissing();
+
+        // Check if games exist BEFORE inserting free games
+        boolean hasGames = false;
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM games")) {
+            rs.next();
+            hasGames = rs.getInt(1) > 0;
+        } catch (SQLException e) {
+            System.err.println("System Message: Failed to check database: " + e.getMessage());
+            return;
+        }
+
+        // If NO games exist, do a full seed (API + free games)
+        if (!hasGames) {
+            System.out.println("System Message: Fetching deals from CheapShark API...");
+            List<Game> games = fetchFromCheapShark();
+
+            if (!games.isEmpty()) {
+                upsertGames(games);
+                System.out.println("System Message: Seeding complete. " + games.size() + " games added.");
+            } else {
+                System.out.println("System Message: API failed. Using backup data...");
+                List<Game> backup = getBackupGames();
+                if (!backup.isEmpty()) {
+                    upsertGames(backup);
+                    System.out.println("System Message: Seeding complete (backup). " + backup.size() + " games added.");
+                } else {
+                    System.out.println("System Message: Seeding failed. No data available.");
+                }
+            }
+        }
+
+        // ALWAYS ensure free games exist (whether we just seeded or not)
         ensureFreeGamesExist();
 
-//        System.out.println("Attempting to fetch latest deals from CheapShark API...");
-        List<Game> games = fetchFromCheapShark();
-
-        if (!games.isEmpty()) {
-//            System.out.println("API returned " + games.size() + " games. Upserting into database...");
-            upsertGames(games);
-            System.out.println("System Message: Seeding complete.");
-        } else {
-            System.out.println("System Message: API failed or returned no data. Using hardcoded backup...");
-            List<Game> backup = getBackupGames();
-            if (!backup.isEmpty()) {
-//                System.out.println("Backup has " + backup.size() + " games. Upserting...");
-                upsertGames(backup);
-                System.out.println("System Message: Seeding complete (backup).");
-            } else {
-                System.out.println("System Message: No data source available. Keeping existing games.");
-            }
-        }
+        System.out.println("System Message: Database ready.");
     }
 
-    // ============================================================
-    // ADMIN CREATION
-    // ============================================================
     private static void createAdminIfMissing() {
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement check = conn.prepareStatement("SELECT 1 FROM users WHERE username = 'admin'")) {
-            ResultSet rs = check.executeQuery();
+        try (Connection conn = DatabaseConnection.getConnection()) {
             String hashed = BCrypt.hashpw("admin123", BCrypt.gensalt());
+            PreparedStatement check = conn.prepareStatement("SELECT 1 FROM users WHERE username = 'admin'");
+            ResultSet rs = check.executeQuery();
             if (rs.next()) {
-                try (PreparedStatement update = conn.prepareStatement(
-                        "UPDATE users SET hashed_password = ?, role = 'ADMIN' WHERE username = 'admin'")) {
-                    update.setString(1, hashed);
-                    update.executeUpdate();
-//                    System.out.println("Admin password reset to 'admin123'.");
-                }
+                PreparedStatement update = conn.prepareStatement(
+                        "UPDATE users SET hashed_password = ?, role = 'ADMIN' WHERE username = 'admin'"
+                );
+                update.setString(1, hashed);
+                update.executeUpdate();
             } else {
-                try (PreparedStatement insert = conn.prepareStatement(
-                        "INSERT INTO users (username, hashed_password, first_name, last_name, role) VALUES (?, ?, ?, ?, ?)")) {
-                    insert.setString(1, "admin");
-                    insert.setString(2, hashed);
-                    insert.setString(3, "Admin");
-                    insert.setString(4, "User");
-                    insert.setString(5, "ADMIN");
-                    insert.executeUpdate();
-//                    System.out.println("Admin account created (username: admin, password: admin123)");
-                }
+                PreparedStatement insert = conn.prepareStatement(
+                        "INSERT INTO users (username, hashed_password, first_name, last_name, role) VALUES (?, ?, ?, ?, ?)"
+                );
+                insert.setString(1, "admin");
+                insert.setString(2, hashed);
+                insert.setString(3, "Admin");
+                insert.setString(4, "User");
+                insert.setString(5, "ADMIN");
+                insert.executeUpdate();
             }
         } catch (SQLException e) {
-            System.err.println("Could not set up admin: " + e.getMessage());
+            System.err.println("System Message: Could not set up admin: " + e.getMessage());
         }
     }
 
-    // ============================================================
-    // ENSURE FREE GAMES (fixed connection handling)
-    // ============================================================
     private static void ensureFreeGamesExist() {
         String[][] freeGames = {
                 {"Counter-Strike 2", "1", "0.00", "0.00", "https://store.steampowered.com/app/730/", "2023", "Free"},
@@ -94,17 +105,15 @@ public class DataSeeder {
                 {"Overwatch 2", "2", "0.00", "0.00", "https://store.epicgames.com/", "2022", "Free"}
         };
 
-        try (Connection conn = DatabaseConnection.getConnection()) {
+        try (Connection conn = DriverManager.getConnection(
+                "jdbc:postgresql://localhost:5432/game_aggregator",
+                "postgres", "root")) {
             for (String[] row : freeGames) {
-                // Check if game exists
-                String checkSQL = "SELECT game_id FROM games WHERE game_name = ?";
-                try (PreparedStatement checkStmt = conn.prepareStatement(checkSQL)) {
-                    checkStmt.setString(1, row[0]);
-                    ResultSet rs = checkStmt.executeQuery();
-                    if (rs.next()) continue; // already exists
-                }
+                PreparedStatement check = conn.prepareStatement("SELECT 1 FROM games WHERE game_name = ?");
+                check.setString(1, row[0]);
+                ResultSet rs = check.executeQuery();
+                if (rs.next()) continue;
 
-                // Insert the free game
                 Game g = new Game();
                 g.setGameName(row[0]);
                 g.setStoreId(Integer.parseInt(row[1]));
@@ -116,34 +125,108 @@ public class DataSeeder {
                 g.setPopularityRank(50 + random.nextInt(50));
                 g.setRating(7.0 + (9.8 - 7.0) * random.nextDouble());
                 g.setDescription("Free game: " + row[0]);
-
-                // Insert using the same connection
-                String insertSQL = "INSERT INTO games (game_name, description, store_id, normal_price, sale_price, " +
-                        "popularity_rank, rating, release_year, category, deal_url) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                try (PreparedStatement insertStmt = conn.prepareStatement(insertSQL)) {
-                    insertStmt.setString(1, g.getGameName());
-                    insertStmt.setString(2, g.getDescription());
-                    insertStmt.setInt(3, g.getStoreId());
-                    insertStmt.setBigDecimal(4, g.getNormalPrice());
-                    insertStmt.setBigDecimal(5, g.getSalePrice());
-                    insertStmt.setInt(6, g.getPopularityRank());
-                    insertStmt.setDouble(7, g.getRating());
-                    insertStmt.setInt(8, g.getReleaseYear());
-                    insertStmt.setString(9, g.getCategory());
-                    insertStmt.setString(10, g.getDealUrl());
-                    insertStmt.executeUpdate();
-                    System.out.println("Added free game: " + row[0]);
-                }
+                GameDAO.insertGame(g);
             }
         } catch (SQLException e) {
-            System.err.println("Could not ensure free games: " + e.getMessage());
+            System.err.println("System Message: Could not ensure free games: " + e.getMessage());
         }
     }
 
-    // ============================================================
-    // UPSERT GAMES (insert or update by name, preserve IDs)
-    // ============================================================
+    private static List<Game> fetchFromCheapShark() {
+        List<Game> allGames = new ArrayList<>();
+        int pageSize = 60;
+
+        for (int storeId : STORE_IDS) {
+            int page = 0;
+            int fetched = 0;
+
+            while (fetched < MAX_PER_STORE && allGames.size() < TOTAL_CAP) {
+                try {
+                    String urlStr = "https://www.cheapshark.com/api/1.0/deals?storeID=" + storeId
+                            + "&pageSize=" + pageSize + "&page=" + page;
+                    URL url = new URL(urlStr);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("User-Agent", "GameAggregator/1.0 (collegeproject@example.com)");
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(5000);
+
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode != 200) {
+                        System.err.println("System Message: API error for store " + storeId + " page " + page + " (HTTP " + responseCode + ")");
+                        break;
+                    }
+
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) response.append(line);
+                    in.close();
+
+                    JsonArray deals = JsonParser.parseString(response.toString()).getAsJsonArray();
+                    if (deals.size() == 0) break;
+
+                    for (JsonElement elem : deals) {
+                        if (fetched >= MAX_PER_STORE || allGames.size() >= TOTAL_CAP) break;
+                        JsonObject obj = elem.getAsJsonObject();
+
+                        String title = getString(obj, "title");
+                        String retail = getString(obj, "retailPrice");
+                        String sale = getString(obj, "salePrice");
+                        String dealId = getString(obj, "dealID");
+
+                        if (title == null || dealId == null) continue;
+
+                        Game g = new Game();
+                        g.setGameName(title);
+                        g.setStoreId(storeId);
+
+                        BigDecimal salePrice = new BigDecimal(sale != null ? sale : "0.00");
+                        g.setSalePrice(salePrice);
+
+                        BigDecimal normalPrice;
+                        if (retail != null && !retail.equals("0.00")) {
+                            normalPrice = new BigDecimal(retail);
+                        } else if (salePrice.compareTo(BigDecimal.ZERO) > 0) {
+                            normalPrice = salePrice.multiply(new BigDecimal("1.5"));
+                            if (normalPrice.compareTo(new BigDecimal("100")) > 0) {
+                                normalPrice = new BigDecimal("59.99");
+                            }
+                        } else {
+                            normalPrice = new BigDecimal("59.99");
+                        }
+                        g.setNormalPrice(normalPrice);
+
+                        g.setDealUrl("https://www.cheapshark.com/redirect?dealID=" + dealId);
+                        g.setPopularityRank(random.nextInt(100) + 1);
+                        g.setRating(6.0 + (9.5 - 6.0) * random.nextDouble());
+                        g.setReleaseYear(2015 + random.nextInt(9));
+
+                        if (g.getSalePrice().compareTo(BigDecimal.ZERO) == 0) {
+                            g.setCategory("Free");
+                        } else {
+                            g.setCategory(CATEGORIES[random.nextInt(CATEGORIES.length)]);
+                        }
+
+                        g.setDescription("Available on " + getStoreName(storeId));
+                        allGames.add(g);
+                        fetched++;
+                    }
+
+                    page++;
+                    if (deals.size() < pageSize) break;
+
+                } catch (Exception e) {
+                    System.err.println("System Message: API error for store " + storeId + ": " + e.getMessage());
+                    break;
+                }
+            }
+        }
+
+        System.out.println("System Message: Fetched " + allGames.size() + " games from API.");
+        return allGames;
+    }
+
     private static void upsertGames(List<Game> games) {
         String selectSQL = "SELECT game_id FROM games WHERE LOWER(game_name) = LOWER(?)";
         String updateSQL = "UPDATE games SET description = ?, store_id = ?, normal_price = ?, sale_price = ?, " +
@@ -156,13 +239,11 @@ public class DataSeeder {
         try (Connection conn = DatabaseConnection.getConnection()) {
             int updated = 0, inserted = 0;
             for (Game g : games) {
-                // Check if exists
                 try (PreparedStatement selectStmt = conn.prepareStatement(selectSQL)) {
                     selectStmt.setString(1, g.getGameName());
                     ResultSet rs = selectStmt.executeQuery();
                     if (rs.next()) {
                         int id = rs.getInt("game_id");
-                        // Update
                         try (PreparedStatement updateStmt = conn.prepareStatement(updateSQL)) {
                             updateStmt.setString(1, g.getDescription());
                             updateStmt.setInt(2, g.getStoreId());
@@ -178,7 +259,6 @@ public class DataSeeder {
                             updated++;
                         }
                     } else {
-                        // Insert
                         try (PreparedStatement insertStmt = conn.prepareStatement(insertSQL)) {
                             insertStmt.setString(1, g.getGameName());
                             insertStmt.setString(2, g.getDescription());
@@ -196,102 +276,12 @@ public class DataSeeder {
                     }
                 }
             }
-            //System.out.println("Upsert: " + updated + " games updated, " + inserted + " games inserted.");
+            System.out.println("System Message: Upsert complete. " + updated + " updated, " + inserted + " inserted.");
         } catch (SQLException e) {
-            System.err.println("Failed to upsert games: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("System Message: Upsert failed: " + e.getMessage());
         }
     }
 
-    // ============================================================
-    // FETCH FROM CHEAPSHARK API (multi-store, capped per store)
-    // ============================================================
-    private static List<Game> fetchFromCheapShark() {
-        List<Game> allGames = new ArrayList<>();
-        int pageSize = 100;
-        int maxPages = 2;
-
-        for (int storeId : STORE_IDS) {
-            int fetchedForStore = 0;
-            int currentPage = 0;
-            while (currentPage < maxPages && fetchedForStore < MAX_PER_STORE) {
-                try {
-                    String urlStr = "https://www.cheapshark.com/api/1.0/deals?storeID=" + storeId
-                            + "&pageSize=" + pageSize + "&page=" + currentPage;
-                    URL url = new URL(urlStr);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("GET");
-                    conn.setRequestProperty("User-Agent", "GameAggregator/1.0 (collegeproject@example.com)");
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-
-                    int responseCode = conn.getResponseCode();
-                    if (responseCode != 200) {
-                        System.err.println("API returned HTTP " + responseCode + " for store " + storeId + " page " + currentPage);
-                        break;
-                    }
-
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = in.readLine()) != null) response.append(line);
-                    in.close();
-
-                    JsonArray deals = JsonParser.parseString(response.toString()).getAsJsonArray();
-                    if (deals.size() == 0) break;
-
-                    for (JsonElement elem : deals) {
-                        if (fetchedForStore >= MAX_PER_STORE) break;
-                        JsonObject obj = elem.getAsJsonObject();
-                        String title = getString(obj, "title");
-                        String retail = getString(obj, "retailPrice");
-                        String sale = getString(obj, "salePrice");
-                        String dealId = getString(obj, "dealID");
-
-                        if (title == null || dealId == null) continue;
-
-                        Game g = new Game();
-                        g.setGameName(title);
-                        g.setStoreId(storeId);
-                        g.setNormalPrice(new BigDecimal(retail != null ? retail : "0.00"));
-                        g.setSalePrice(new BigDecimal(sale != null ? sale : "0.00"));
-                        g.setDealUrl("https://www.cheapshark.com/redirect?dealID=" + dealId);
-                        g.setPopularityRank(random.nextInt(100) + 1);
-                        g.setRating(6.0 + (9.5 - 6.0) * random.nextDouble());
-                        g.setReleaseYear(2015 + random.nextInt(9));
-
-                        if (g.getSalePrice().compareTo(BigDecimal.ZERO) == 0) {
-                            g.setCategory("Free");
-                        } else {
-                            g.setCategory(CATEGORIES[random.nextInt(CATEGORIES.length)]);
-                        }
-
-                        g.setDescription("Available on " + getStoreName(storeId) + " - " + g.getCategory());
-                        allGames.add(g);
-                        fetchedForStore++;
-                    }
-
-                   // System.out.println("Fetched " + deals.size() + " deals from store " + storeId + "
-                    // page " + currentPage);
-                    currentPage++;
-                    if (deals.size() < pageSize) break;
-
-                } catch (Exception e) {
-                    System.err.println("API error for store " + storeId + " page " + currentPage + ": " + e.getMessage());
-                    break;
-                }
-            }
-            //System.out.println("Store " + storeId + " yielded " + fetchedForStore + " games.");
-        }
-
-        if (allGames.size() > 100) allGames = allGames.subList(0, 100);
-        //System.out.println("Total fetched: " + allGames.size() + " games.");
-        return allGames;
-    }
-
-    // ============================================================
-    // JSON HELPERS
-    // ============================================================
     private static String getString(JsonObject obj, String key) {
         JsonElement elem = obj.get(key);
         return (elem != null && !elem.isJsonNull()) ? elem.getAsString() : null;
@@ -302,9 +292,6 @@ public class DataSeeder {
         return (elem != null && !elem.isJsonNull()) ? elem.getAsInt() : 0;
     }
 
-    // ============================================================
-    // HARDCODED BACKUP LIST (used if API fails)
-    // ============================================================
     private static List<Game> getBackupGames() {
         List<Game> list = new ArrayList<>();
         String[][] data = {
@@ -329,8 +316,7 @@ public class DataSeeder {
                 {"Apex Legends", "2", "0.00", "0.00", "https://store.epicgames.com/", "2019", "Free"},
                 {"Valorant", "1", "0.00", "0.00", "https://store.steampowered.com/", "2020", "Free"},
                 {"God of War", "1", "49.99", "29.99", "https://store.steampowered.com/app/1593500/", "2022", "Action"},
-                {"Horizon Zero Dawn",     "1", "49.99", "24.99", "https://store.steampowered" +
-                        ".com/app/1151640/", "2020", "Action"},
+                {"Horizon Zero Dawn", "1", "49.99", "24.99", "https://store.steampowered.com/app/1151640/", "2020", "Action"},
                 {"Days Gone", "1", "49.99", "19.99", "https://store.steampowered.com/app/1259420/", "2021", "Action"},
                 {"Death Stranding", "1", "59.99", "29.99", "https://store.steampowered.com/app/1190460/", "2020", "Adventure"},
                 {"Control", "2", "39.99", "14.99", "https://store.epicgames.com/", "2019", "Action"},
@@ -352,15 +338,12 @@ public class DataSeeder {
             g.setCategory(row[6]);
             g.setPopularityRank(50 + random.nextInt(50));
             g.setRating(7.0 + (9.8 - 7.0) * random.nextDouble());
-            g.setDescription("Backup game: " + row[0] + " - " + g.getCategory());
+            g.setDescription("Backup game: " + row[0]);
             list.add(g);
         }
         return list;
     }
 
-    // ============================================================
-    // STORE NAME LOOKUP
-    // ============================================================
     private static String getStoreName(int id) {
         switch (id) {
             case 1: return "Steam";

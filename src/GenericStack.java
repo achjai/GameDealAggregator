@@ -32,17 +32,17 @@ public class GenericStack<T> {
         return item;
     }
 
-    @SuppressWarnings("unchecked")
-    public T peek() {
-        if (isEmpty()) throw new EmptyStackException();
-        return (T) elements[size - 1];
-    }
-
     public boolean isEmpty() {
         return size == 0;
     }
 
-    public int size() {
-        return size;
-    }
+
+//    @SuppressWarnings("unchecked")
+//    public T peek() {
+//        if (isEmpty()) throw new EmptyStackException();
+//        return (T) elements[size - 1];
+//    }
+//    public int size() {
+//        return size;
+//    }
 }

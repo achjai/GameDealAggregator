@@ -7,10 +7,7 @@ public class AuthService {
     private static final int MAX_ATTEMPTS = 3;
 
     public static boolean signup(String username, String password, String firstName, String lastName, String role) {
-        if (!PasswordValidator.isValid(password)) {
-            System.out.println("Password must be 8+ chars, with upper, lower, digit, and special char.");
-            return false;
-        }
+
         try {
             if (UserDAO.exists(username)) {
                 System.out.println("Username already taken.");

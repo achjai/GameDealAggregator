@@ -28,6 +28,10 @@ public class GameDAO {
 
     // ==================== UPDATE PRICE ====================
     public static boolean updatePrice(int gameId, BigDecimal newPrice) throws SQLException {
+        if (newPrice.compareTo(BigDecimal.ZERO) < 0) {
+            System.out.println("Price cannot be negative.");
+            return false;
+        }
         String sql = "{ ? = call update_price(?, ?) }";
         try (Connection conn = DatabaseConnection.getConnection();
              CallableStatement stmt = conn.prepareCall(sql)) {
