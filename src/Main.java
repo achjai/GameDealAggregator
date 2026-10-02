@@ -34,9 +34,7 @@ public class Main {
         }
     }
 
-    // ============================================================
     // LOGIN
-    // ============================================================
     private static void login() {
         System.out.print("Username: ");
         String u = scanner.nextLine();
@@ -50,9 +48,7 @@ public class Main {
         }
     }
 
-    // ============================================================
     // SIGNUP (with early username check)
-    // ============================================================
     private static void signup() {
         String u;
         while (true) {
@@ -87,9 +83,7 @@ public class Main {
         }
     }
 
-    // ============================================================
     // MAIN MENU (routes to User or Admin)
-    // ============================================================
     private static void showMainMenu() {
         if (currentUser.isAdmin()) {
             showAdminMenu();
@@ -98,9 +92,7 @@ public class Main {
         }
     }
 
-    // ============================================================
-    // USER MENU (unchanged)
-    // ============================================================
+    // USER MENU
     private static void showUserMenu() {
         while (true) {
             System.out.println("\n--- USER MENU ---");
@@ -130,9 +122,7 @@ public class Main {
         }
     }
 
-    // ============================================================
-    // ADMIN MENU (updated – 5 options)
-    // ============================================================
+    // ADMIN MENU
     private static void showAdminMenu() {
         while (true) {
             System.out.println("\n--- ADMIN MENU ---");
@@ -146,7 +136,7 @@ public class Main {
 
             switch (choice) {
                 case "1":
-                    browseGames(true); // true = admin mode (update price)
+                    browseGames(true); // true = admin mode
                     break;
                 case "2":
                     adminApplyCategoryDiscount();
@@ -166,9 +156,7 @@ public class Main {
         }
     }
 
-    // ============================================================
     // 1. BROWSE & SEARCH (shared – with mode flag)
-    // ============================================================
     private static void browseGames(boolean isAdmin) {
         String searchQuery = "";
         Double minPrice = null;
@@ -249,11 +237,8 @@ public class Main {
         }
     }
 
-    // ============================================================
     // PERFORM SEARCH (shared, with mode flag)
-    // ============================================================
-    private static void performSearch(String query, Double minPrice, Double maxPrice,
-                                      String category, String sortBy, boolean isAdmin) {
+    private static void performSearch(String query, Double minPrice, Double maxPrice, String category, String sortBy, boolean isAdmin) {
         int page = 0;
         int pageSize = 10;
 
@@ -279,7 +264,7 @@ public class Main {
             }
             System.out.println("Total: " + total + " games");
 
-            // Build command prompt based on mode
+            // based on mode
             if (isAdmin) {
                 System.out.println("\n[N]ext | [P]revious | [V]iew details (HTML) | [U]pdate price | [B]ack");
             } else {
@@ -395,9 +380,7 @@ public class Main {
         }
     }
 
-    // ============================================================
     // 3. NOTIFICATIONS (user only)
-    // ============================================================
     private static void showNotifications() {
         try {
             List<Notification> notifs = NotificationDAO.getLatest(currentUser.getUserId(), 10);
@@ -414,13 +397,7 @@ public class Main {
             System.out.println("Error: " + e.getMessage());
         }
     }
-
-    // ============================================================
     // ADMIN ACTIONS
-    // ============================================================
-
-    // adminSetGamePrice() is REMOVED – now integrated into search
-
     private static void adminApplyCategoryDiscount() {
         try {
             List<String> categories = GameDAO.getAllCategories();

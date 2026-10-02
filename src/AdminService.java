@@ -8,7 +8,7 @@ public class AdminService {
     // Undo stack for price changes
     private static GenericStack<PriceChange> undoStack = new GenericStack<>();
 
-    // ==================== PRICE SETTING ====================
+    //PRICE SETTING
     public static boolean setGamePrice(int gameId, BigDecimal newPrice) {
         try {
             Game g = GameDAO.getGameById(gameId);
@@ -27,7 +27,7 @@ public class AdminService {
         }
     }
 
-    // ==================== CATEGORY DISCOUNT ====================
+    //CATEGORY DISCOUNT
     public static boolean applyCategoryDiscount(String category, double discountPercent) {
 
 
@@ -100,7 +100,7 @@ public class AdminService {
         }
     }
 
-    // ==================== NOTIFICATION HELPER ====================
+    //NOTIFICATION HELPER
     public static void notifyUsersForGame(int gameId, String message) {
         try {
             List<Integer> userIds = WishlistDAO.getUsersWithGame(gameId);
@@ -115,7 +115,7 @@ public class AdminService {
         }
     }
 
-    // ==================== RAW SQL ====================
+    //RAW SQL
     public static boolean executeSQL(String sql) {
         if (sql == null || sql.trim().isEmpty()) {
             System.out.println("No SQL provided.");
@@ -146,7 +146,7 @@ public class AdminService {
         }
     }
 
-    // ==================== TABLE PRINTER ====================
+    //TABLE PRINTER
     private static void printResultSet(ResultSet rs) throws SQLException {
         ResultSetMetaData meta = rs.getMetaData();
         int colCount = meta.getColumnCount();
@@ -184,6 +184,6 @@ public class AdminService {
         for (String col : columns) {
             sb.append(String.format("%-20s | ", col.length() > 20 ? col.substring(0, 20) : col));
         }
-        System.out.println(sb.toString());
+        System.out.println(sb);
     }
 }

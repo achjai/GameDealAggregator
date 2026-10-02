@@ -6,8 +6,7 @@ public class User {
     private String lastName;
     private String role;
 
-    public User() {}
-    public User(int userId, String username, String hashedPassword, String firstName, String lastName, String role) {
+        public User(int userId, String username, String hashedPassword, String firstName, String lastName, String role) {
         this.userId = userId;
         this.username = username;
         this.hashedPassword = hashedPassword;

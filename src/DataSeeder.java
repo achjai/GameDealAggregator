@@ -26,14 +26,12 @@ public class DataSeeder {
     private static final int MAX_PER_STORE = 25;
     private static final int TOTAL_CAP = 100;
 
-    // ============================================================
-    // FIXED: seedIfEmpty() - checks games BEFORE inserting free games
-    // ============================================================
+    // seedIfEmpty() - checks games BEFORE inserting free games
     public static void seedIfEmpty() {
         createAdminIfMissing();
 
         // Check if games exist BEFORE inserting free games
-        boolean hasGames = false;
+        boolean hasGames ;
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM games")) {
@@ -49,10 +47,13 @@ public class DataSeeder {
             System.out.println("System Message: Fetching deals from CheapShark API...");
             List<Game> games = fetchFromCheapShark();
 
+         //if games fetches games successfully
             if (!games.isEmpty()) {
                 upsertGames(games);
                 System.out.println("System Message: Seeding complete. " + games.size() + " games added.");
-            } else {
+            }
+            //if no games fetched by fetchFromCheapShark()
+            else {
                 System.out.println("System Message: API failed. Using backup data...");
                 List<Game> backup = getBackupGames();
                 if (!backup.isEmpty()) {
@@ -132,6 +133,8 @@ public class DataSeeder {
         }
     }
 
+    // fetchFromCheapShark()-> fetches from API and returns list of games
+
     private static List<Game> fetchFromCheapShark() {
         List<Game> allGames = new ArrayList<>();
         int pageSize = 60;
@@ -171,7 +174,6 @@ public class DataSeeder {
                         JsonObject obj = elem.getAsJsonObject();
 
                         String title = getString(obj, "title");
-                        String retail = getString(obj, "retailPrice");
                         String sale = getString(obj, "salePrice");
                         String dealId = getString(obj, "dealID");
 
@@ -184,10 +186,9 @@ public class DataSeeder {
                         BigDecimal salePrice = new BigDecimal(sale != null ? sale : "0.00");
                         g.setSalePrice(salePrice);
 
+                        // SIMPLIFIED: normalPrice = 1.5 × salePrice (capped at 100)
                         BigDecimal normalPrice;
-                        if (retail != null && !retail.equals("0.00")) {
-                            normalPrice = new BigDecimal(retail);
-                        } else if (salePrice.compareTo(BigDecimal.ZERO) > 0) {
+                        if (salePrice.compareTo(BigDecimal.ZERO) > 0) {
                             normalPrice = salePrice.multiply(new BigDecimal("1.5"));
                             if (normalPrice.compareTo(new BigDecimal("100")) > 0) {
                                 normalPrice = new BigDecimal("59.99");
@@ -228,69 +229,39 @@ public class DataSeeder {
     }
 
     private static void upsertGames(List<Game> games) {
-        String selectSQL = "SELECT game_id FROM games WHERE LOWER(game_name) = LOWER(?)";
-        String updateSQL = "UPDATE games SET description = ?, store_id = ?, normal_price = ?, sale_price = ?, " +
-                "popularity_rank = ?, rating = ?, release_year = ?, category = ?, deal_url = ?, " +
-                "last_updated = CURRENT_TIMESTAMP WHERE game_id = ?";
-        String insertSQL = "INSERT INTO games (game_name, description, store_id, normal_price, sale_price, " +
+        String sql = "INSERT INTO games (game_name, description, store_id, normal_price, sale_price, " +
                 "popularity_rank, rating, release_year, category, deal_url) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            int updated = 0, inserted = 0;
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
             for (Game g : games) {
-                try (PreparedStatement selectStmt = conn.prepareStatement(selectSQL)) {
-                    selectStmt.setString(1, g.getGameName());
-                    ResultSet rs = selectStmt.executeQuery();
-                    if (rs.next()) {
-                        int id = rs.getInt("game_id");
-                        try (PreparedStatement updateStmt = conn.prepareStatement(updateSQL)) {
-                            updateStmt.setString(1, g.getDescription());
-                            updateStmt.setInt(2, g.getStoreId());
-                            updateStmt.setBigDecimal(3, g.getNormalPrice());
-                            updateStmt.setBigDecimal(4, g.getSalePrice());
-                            updateStmt.setInt(5, g.getPopularityRank());
-                            updateStmt.setDouble(6, g.getRating());
-                            updateStmt.setInt(7, g.getReleaseYear());
-                            updateStmt.setString(8, g.getCategory());
-                            updateStmt.setString(9, g.getDealUrl());
-                            updateStmt.setInt(10, id);
-                            updateStmt.executeUpdate();
-                            updated++;
-                        }
-                    } else {
-                        try (PreparedStatement insertStmt = conn.prepareStatement(insertSQL)) {
-                            insertStmt.setString(1, g.getGameName());
-                            insertStmt.setString(2, g.getDescription());
-                            insertStmt.setInt(3, g.getStoreId());
-                            insertStmt.setBigDecimal(4, g.getNormalPrice());
-                            insertStmt.setBigDecimal(5, g.getSalePrice());
-                            insertStmt.setInt(6, g.getPopularityRank());
-                            insertStmt.setDouble(7, g.getRating());
-                            insertStmt.setInt(8, g.getReleaseYear());
-                            insertStmt.setString(9, g.getCategory());
-                            insertStmt.setString(10, g.getDealUrl());
-                            insertStmt.executeUpdate();
-                            inserted++;
-                        }
-                    }
-                }
+                stmt.setString(1, g.getGameName());
+                stmt.setString(2, g.getDescription());
+                stmt.setInt(3, g.getStoreId());
+                stmt.setBigDecimal(4, g.getNormalPrice());
+                stmt.setBigDecimal(5, g.getSalePrice());
+                stmt.setInt(6, g.getPopularityRank());
+                stmt.setDouble(7, g.getRating());
+                stmt.setInt(8, g.getReleaseYear());
+                stmt.setString(9, g.getCategory());
+                stmt.setString(10, g.getDealUrl());
+                stmt.addBatch();
             }
-            System.out.println("System Message: Upsert complete. " + updated + " updated, " + inserted + " inserted.");
+            stmt.executeBatch();
+            System.out.println("Inserted " + games.size() + " games.");
+
         } catch (SQLException e) {
-            System.err.println("System Message: Upsert failed: " + e.getMessage());
+            System.err.println("Insert failed: " + e.getMessage());
         }
     }
 
-    private static String getString(JsonObject obj, String key) {
-        JsonElement elem = obj.get(key);
-        return (elem != null && !elem.isJsonNull()) ? elem.getAsString() : null;
-    }
+        private static String getString(JsonObject obj, String key) {
+            JsonElement elem = obj.get(key);
+            return (elem != null && !elem.isJsonNull()) ? elem.getAsString() : null;
+        }
 
-    private static int getInt(JsonObject obj, String key) {
-        JsonElement elem = obj.get(key);
-        return (elem != null && !elem.isJsonNull()) ? elem.getAsInt() : 0;
-    }
 
     private static List<Game> getBackupGames() {
         List<Game> list = new ArrayList<>();

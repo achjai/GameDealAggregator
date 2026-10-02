@@ -8,13 +8,6 @@ public class Notification {
     private Timestamp createdAt;
 
     public Notification() {}
-    public Notification(int notifId, int userId, String message, boolean isRead, Timestamp createdAt) {
-        this.notifId = notifId;
-        this.userId = userId;
-        this.message = message;
-        this.isRead = isRead;
-        this.createdAt = createdAt;
-    }
 
     public int getNotifId() { return notifId; }
     public void setNotifId(int notifId) { this.notifId = notifId; }

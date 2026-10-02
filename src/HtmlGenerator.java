@@ -218,24 +218,24 @@ public class HtmlGenerator {
                 System.err.println("Desktop API failed: " + e.getMessage());
             }
         }
-        String os = System.getProperty("os.name").toLowerCase();
-        try {
-            String absPath = file.getAbsolutePath();
-            if (os.contains("win")) {
-                Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "", absPath});
-                System.out.println("Opened via Windows command.");
-            } else if (os.contains("mac")) {
-                Runtime.getRuntime().exec(new String[]{"open", absPath});
-                System.out.println("Opened via Mac 'open'.");
-            } else if (os.contains("nix") || os.contains("nux") || os.contains("bsd")) {
-                Runtime.getRuntime().exec(new String[]{"xdg-open", absPath});
-                System.out.println("Opened via xdg-open.");
-            } else {
-                System.out.println("➡️ Please open the file manually: " + absPath);
-            }
-        } catch (Exception e) {
-            System.err.println("Fallback open failed: " + e.getMessage());
-            System.out.println("Please open the file manually: " + file.getAbsolutePath());
-        }
+//        String os = System.getProperty("os.name").toLowerCase();
+//        try {
+//            String absPath = file.getAbsolutePath();
+//            if (os.contains("win")) {
+//                Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "", absPath});
+//                System.out.println("Opened via Windows command.");
+//            } else if (os.contains("mac")) {
+//                Runtime.getRuntime().exec(new String[]{"open", absPath});
+//                System.out.println("Opened via Mac 'open'.");
+//            } else if (os.contains("nix") || os.contains("nux") || os.contains("bsd")) {
+//                Runtime.getRuntime().exec(new String[]{"xdg-open", absPath});
+//                System.out.println("Opened via xdg-open.");
+//            } else {
+//                System.out.println("➡️ Please open the file manually: " + absPath);
+//            }
+//        } catch (Exception e) {
+//            System.err.println("Fallback open failed: " + e.getMessage());
+//            System.out.println("Please open the file manually: " + file.getAbsolutePath());
+//        }
     }
 }
